@@ -1,36 +1,48 @@
-# This is a basic workflow to help you get started with Actions
+name: Sync Loop for roya nova
 
-name: CI
-
-# Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the "main" branch
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
-  build:
-    # The type of runner that the job will run on
+  build-and-sync:
     runs-on: ubuntu-latest
-
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
+      - name: Checkout Local Repo
+        uses: actions/checkout@v4
 
-      # Runs a single command using the runners shell
-      - name: Run a one-line script
-        run: echo Hello, world!
-
-      # Runs a set of commands using the runners shell
-      - name: Run a multi-line script
+      - name: Clean Current Directory
         run: |
-          echo Add other actions to build,
-          echo test, and deploy your project.
+          find . -maxdepth 1 ! -name '.' ! -name '..' ! -name '.git' ! -name '.github' -exec rm -rf {} +
+
+      - name: Fetch Remote Files
+        run: |
+          wget -m -p -k -nH --cut-dirs=0 https://09823434988765.ai.studio
+          rm -f robots.txt
+
+      - name: Purge Tracking Elements
+        run: |
+          if [ -f index.html ]; then
+            sed -i '/googletagmanager\.com\/gtag\/js/d' index.html
+            sed -i '/window\.dataLayer/,/<\/script>/d' index.html
+            sed -i '/gtag(/d' index.html
+          fi
+
+      - name: Strip Comments and Minify
+        run: |
+          if [ -d assets ]; then
+            for f in assets/*.js; do
+              npx terser "$f" --compress --mangle --comments false -o "$f"
+            done
+          fi
+          if [ -f index.html ]; then
+            npx html-minifier --collapse-whitespace --remove-comments --remove-redundant-attributes --remove-script-type-attributes --remove-style-link-type-attributes --minify-css true --minify-js true -o index.html index.html
+          fi
+
+      - name: Push to Pipeline
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add .
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: sync and optimize assets" && git push)
